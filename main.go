@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/x509/pkix"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -78,6 +79,10 @@ type SettingsDialog struct {
 	AboutButton, OkButton, CancelButton	*gtk.Button
 }
 
+type SettingsData struct {
+	DefaultViewState				string `json: "default_view`
+}
+
 func NewMainWindow() *MainWindow {
 	builder = gtk.NewBuilderFromFile(fmt.Sprintf("%s/online_radio_app.glade", resource_path))
 	window := builder.GetObject("window_main").Cast().(*gtk.Window)
@@ -116,9 +121,17 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 	wnd.SelectCountryBox.SetActive(0)
 	query = wnd.SelectCountryBox.ActiveText()
 	player.StreamList = db.LoadStationList(nil)
+	favouritesList := db.LoadFavourites()
 	favList = db.LoadFavourites()
 	state = "default"
-	data := player.StreamList
+	input := os.ReadFile("settings.json")
+	var settingsData SettingsData
+	jsonData = json.Unmarshal(input, &settingsData)
+	if settingsData.DefaultViewState == "List" {
+		data := player.StreamList
+	} else {
+		data := favouritesList
+	}
 	rowsQuantity := uint(len(data))
 	wnd.PlaylistView = gtk.NewListBox()
 	wnd.PlaylistViewTable = gtk.NewTable(rowsQuantity, uint(4), true)
@@ -375,11 +388,11 @@ func NewSettingsDialog() *SettingsDialog {
 }
 
 func (dlg *SettingsDialog) Init() {
-	dlg.InterfaceBox.ConnectChanged(func() {
-		playlistViewState = dlg.InterfaceBox.ActiveText()
-	})
 	dlg.DefaultViewBox.ConnectChanged(func() {
-		playlistViewState = dlg.DefaultViewBox.ActiveText()
+		defaultViewState := dlg.DefaultViewBox.ActiveText()
+		data := SettingsData{DefaultViewState: defaultviewst}
+		output = json.Marshal(data)
+		os.WriteFile("settings.json", output, os.ModePerm)
 	})
 
 }

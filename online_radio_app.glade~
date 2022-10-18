@@ -336,7 +336,7 @@
                 <property name="left-padding">20</property>
                 <property name="right-padding">20</property>
                 <child>
-                  <object class="GtkButton">
+                  <object class="GtkButton" id="about_button">
                     <property name="label" translatable="yes">About application</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
