@@ -34,6 +34,7 @@ type FavouriteItem struct {
 }
 
 type StreamItem struct {
+	Id sql.NullInt64 
 	StreamName, Country, Logo, Url null.String
 }
 
@@ -48,7 +49,7 @@ func (favouriteItem FavouriteItem) ToStream() StreamItem {
 	var country null.String
 	index.Scan(nil)
 	country.Scan("undefined")
-	stream := StreamItem{StreamName: favouriteItem.StreamName, Country: country, Logo: 
+	stream := StreamItem{Id: favouriteItem.Id, StreamName: favouriteItem.StreamName, Country: country, Logo: 
 		favouriteItem.Logo, Url: favouriteItem.Url}
 	return stream
 }	
@@ -193,19 +194,20 @@ func (db *StreamDatabase) LoadFavourites() []FavouriteItem {
 	return favourites
 }
 
-func (db *StreamDatabase) GetFavouritesByItemName(name string) FavouriteItem {
+func (db *StreamDatabase) GetFavouritesByItemName(name string) (FavouriteItem, error) {
 	row := db.QueryRow("SELECT Id,  StreamName, Logo, Url FROM favourites WHERE StreamName = ?", name)
 	
 	var fv FavouriteItem
 	err := row.Scan(&fv.Id, &fv.StreamName, &fv.Logo, &fv.Url)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Default()
+			fv = FavouriteItem{}
+			return fv, err
 		} else {
-			panic(err)
+			log.Fatal(err)
 		}
 	}
-	return fv
+	return fv, nil
 }
 
 func (db *StreamDatabase) RemoveFavoriteItem(id int) {
@@ -226,12 +228,35 @@ func (db *StreamDatabase) RemoveFavoriteItem(id int) {
 	}
 }
 
-func (db *StreamDatabase) GetStreamByItemName(streamName string) StreamItem {
-	row := db.QueryRow("SELECT StreamName, Logo, Url FROM radiometadata WHERE StreamName = ?", streamName)
+func (db *StreamDatabase) GetStreamByItemName(streamName string) (StreamItem, error) {
+	row := db.QueryRow("SELECT Id, StreamName, Logo, Url FROM radiometadata WHERE StreamName = ?", streamName)
 	var item = NewStreamItem()
 	err := row.Scan(&item.StreamName, &item.Logo, &item.Url)
 	if err != nil {
-		panic(err)
+		if err == sql.ErrNoRows {
+			item := NewStreamItem()
+			return item, err
+		} else {
+			log.Fatal(err)
+		}
 	}
-	return item
+	return item, nil
+}
+
+func (db *StreamDatabase) Update(oldStreamName, newStreamName, NewUrl string) {
+	fv, err := db.GetFavouritesByItemName(oldStreamName)
+	id := fv.Id
+	fmt.Println(fv.StreamName.String)
+	if err == nil {
+		db.Exec("UPDATE favourites SET StreamName = ?, Url = ? WHERE Id = ?", newStreamName, NewUrl, id)
+	} else {
+		log.Fatal(err)
+		item, err := db.GetStreamByItemName(oldStreamName)
+		id := item.Id
+		if err == nil {
+			db.Exec("UPDATE radiometadata SET StreamName = ?, Url = ? WHERE Id = ?", newStreamName, NewUrl, id)
+		} else {
+			log.Fatal(err)
+		}
+	}
 }

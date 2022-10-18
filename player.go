@@ -61,7 +61,7 @@ func (player *StreamPlayer) StopRecording() error {
 }
 
 func (player *StreamPlayer) GetMetadata(out chan <- *ffprobe.Format) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancelFn := context.WithTimeout(context.Background(), 5 * time.Second)
 	defer cancelFn()
 	ffprobe.SetFFProbeBinPath("/usr/bin/ffprobe")
 	data, err := ffprobe.ProbeURL(ctx, player.StreamUrl)
