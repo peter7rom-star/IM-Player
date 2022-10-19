@@ -1,10 +1,10 @@
 package main
 
 import (
-	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -29,8 +29,9 @@ var builder = gtk.NewBuilder()
 var player = NewPlayer()
 var wnd *MainWindow
 var resource_path = fmt.Sprintf("%s/%s", homeDir, ".local/share/online-radio")
+var settingsFile = fmt.Sprintf("%s/%s", resource_path, "settings.json")
 var db = stream_db.InitDB(fmt.Sprintf("%s/db/metadata.db", resource_path))
-var state, playlistState, playlistViewState string
+var state, playlistState, playlistViewState, DefaultViewState string
 var forward = false
 var currentPlaylistItemIndex interface{}
 var selectedStreamList []stream_db.StreamItem
@@ -118,28 +119,49 @@ func NewMainWindow() *MainWindow {
 func (wnd *MainWindow) Activate(app *gtk.Application) {
 	wnd.SelectCountryBox.AppendText("All")
 	var query, query_2 string
-	wnd.SelectCountryBox.SetActive(0)
 	query = wnd.SelectCountryBox.ActiveText()
 	player.StreamList = db.LoadStationList(nil)
-	favouritesList := db.LoadFavourites()
+	var data []stream_db.StreamItem
 	favList = db.LoadFavourites()
-	state = "default"
-	input := os.ReadFile("settings.json")
-	var settingsData SettingsData
-	jsonData = json.Unmarshal(input, &settingsData)
-	if settingsData.DefaultViewState == "List" {
-		data := player.StreamList
+	input, err := os.ReadFile(settingsFile)
+	var count int
+	if err == nil {
+		var settingsData SettingsData
+		err := json.Unmarshal(input, &settingsData)
+		if err == nil {
+			DefaultViewState = settingsData.DefaultViewState
+			fmt.Println(DefaultViewState)
+			if DefaultViewState == "All stations" {
+				data = player.StreamList
+				state = "default"
+			} else {
+				for _, item := range favList {
+					data = append(data, item.ToStream())
+				}
+				state = "favourites_selected"
+			}
+		} else {
+			log.Fatal(err)
+		}
 	} else {
-		data := favouritesList
+		data = player.StreamList
+		log.Fatal(err)
 	}
-	rowsQuantity := uint(len(data))
 	wnd.PlaylistView = gtk.NewListBox()
-	wnd.PlaylistViewTable = gtk.NewTable(rowsQuantity, uint(4), true)
 	listView_2 := gtk.NewListBox()
 	listView_3 := gtk.NewListBox()
 	var m sync.Mutex
 	for ind, item := range data {
 		wnd.AddItemToPlaylist(ind, item)
+	}
+	var landList = db.LoadLandList()
+	model := append(landList, "favourites")
+	for _, elem := range model {
+		wnd.SelectCountryBox.AppendText(elem)
+	}
+	wnd.SelectCountryBox.SetActive(0)
+	if DefaultViewState == "Favourites" {
+		wnd.SelectCountryBox.SetActive(len(model))
 	}
 	listView := wnd.PlaylistView
 	// box := gtk.NewBox(gtk.OrientationHorizontal, 2)
@@ -189,14 +211,14 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 		dlg.Init()
 		dlg.Dialog.ShowAll()
 	})
-	var landList = db.LoadLandList()
-	model := append(landList, "favourites")
-	for _, elem := range model {
-		wnd.SelectCountryBox.AppendText(elem)
-	}
+	wnd.PrefsButton.ConnectClicked(func() {
+		dlg := NewSettingsDialog()
+		dlg.Init()
+		dlg.Dialog.ShowAll()
+	})
 	wnd.SelectCountryBox.SetCanFocus(true)
 	wnd.FavButton.ConnectClicked(func() {
-		
+		count++
 		wnd.PlaylistView = listView_2
 		state = "favourites_selected"
 		ind := slices.Index(model, "favourites")
@@ -204,9 +226,13 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 		wnd.SelectCountryBox.SetActive(ind)
 	})
 	wnd.LibButton.ConnectClicked(func() {
+		count++
 		state = "library_selected"
 		ind := slices.Index(model, query_2)
 		ind++
+		if DefaultViewState == "Favourites" {
+			ind = 0
+		}
 		wnd.SelectCountryBox.SetActive(ind)
 	})
 	wnd.RecordButton.ConnectClicked(func() {
@@ -229,6 +255,13 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 		selectedStreamList = []stream_db.StreamItem{}
 		selectedFavList = []stream_db.FavouriteItem{}
 		if query == "All" || len(query) == 0 {
+			if DefaultViewState == "Favourites" && count == 1 {
+				wnd.PlaylistView = gtk.NewListBox()
+				for _, item := range player.StreamList {
+					wnd.AddItemToPlaylist(nil, item)
+				}
+				listView = wnd.PlaylistView
+			}
 			wnd.PlaylistView = listView
 			query_2 = query
 		} else {
@@ -379,20 +412,34 @@ func (dlg *StreamPropertiesDialog) Init(item stream_db.StreamItem) {
 
 func NewSettingsDialog() *SettingsDialog {
 	dialog := builder.GetObject("settings_dialog").Cast().(*gtk.Dialog)
-	interfaceBox := builder.GetObject("interface_box").Cast().(*gtk.ComboBoxText)
+	// interfaceBox := builder.GetObject("interface_box").Cast().(*gtk.ComboBoxText)
 	defaultViewBox := builder.GetObject("default_view_box").Cast().(*gtk.ComboBoxText)
 	okButton := builder.GetObject("ok_butto").Cast().(*gtk.Button)
 	cancelButton := builder.GetObject("cancel_butto").Cast().(*gtk.Button)
-	return &SettingsDialog{Dialog: dialog, InterfaceBox: interfaceBox, DefaultViewBox: defaultViewBox, 
+	return &SettingsDialog{Dialog: dialog, DefaultViewBox: defaultViewBox, 
 						   OkButton: okButton, CancelButton: cancelButton,}
 }
 
 func (dlg *SettingsDialog) Init() {
+	defaultViewState := dlg.DefaultViewBox.ActiveText()
 	dlg.DefaultViewBox.ConnectChanged(func() {
-		defaultViewState := dlg.DefaultViewBox.ActiveText()
-		data := SettingsData{DefaultViewState: defaultviewst}
-		output = json.Marshal(data)
-		os.WriteFile("settings.json", output, os.ModePerm)
+		defaultViewState = dlg.DefaultViewBox.ActiveText()
+	})
+	dlg.OkButton.ConnectClicked(func() {
+		data := SettingsData{DefaultViewState: defaultViewState}
+		output, err := json.Marshal(data)
+		if err == nil {
+			err = os.WriteFile(settingsFile, output, os.ModePerm)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			log.Fatal(err)
+		}
+		dlg.Dialog.Close()
+	})
+	dlg.CancelButton.ConnectClicked(func() {
+		dlg.Dialog.Close()
 	})
 
 }
@@ -429,7 +476,7 @@ func getMetadata() ffprobe.Format {
 
 var selectedFavList []stream_db.FavouriteItem
 
-func addRow(item stream_db.StreamItem) (*gtk.EventBox, *gtk.ListBoxRow, stream_db.StreamItem) {
+func addRow(item stream_db.StreamItem) (*gtk.ListBoxRow, stream_db.StreamItem) {
 	hbox := gtk.NewBox(gtk.OrientationHorizontal, 7)
 	eventBox := gtk.NewEventBox()
 	var streamLogo = fmt.Sprintf("%s/./radio_logos/%s", resource_path, item.Logo.String)
@@ -449,17 +496,16 @@ func addRow(item stream_db.StreamItem) (*gtk.EventBox, *gtk.ListBoxRow, stream_d
 	eventBox.Add(hbox)
 	row := gtk.NewListBoxRow()
 	row.Add(eventBox)
-	return eventBox, row, item
+	return row, item
 }
 
 func (wnd *MainWindow) AddItemToPlaylist(index any, item stream_db.StreamItem) {
-	_, row, item := addRow(item)
+	row, item := addRow(item)
 	wnd.PlaylistView.Add(row)
-	wnd.PlaylistViewTable.Add(row)
 	row.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
 		wnd.onRowClickHandler(index, item, event)
 		return
-	}))
+	})
 }
 
 func (wnd *MainWindow) onRowClickHandler(index any, item stream_db.StreamItem, event *gdk.EventButton) (ok bool) {
