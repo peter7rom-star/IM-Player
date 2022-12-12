@@ -6,12 +6,16 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
+	"reflect"
 	"strings"
-	"sync"
-	"time"
-	"unicode/utf8"
 
+	// "sync"
+	"time"
+
+	// "unicode/utf16"
+	// "unicode/utf8"
+
+	"github.com/atotto/clipboard"
 	"github.com/diamondburned/gotk4/pkg/gdk/v3"
 	"github.com/diamondburned/gotk4/pkg/gdkpixbuf/v2"
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
@@ -20,25 +24,26 @@ import (
 	"golang.org/x/exp/slices"
 	"gopkg.in/vansante/go-ffprobe.v2"
 
-	stream_db "github.com/tech7strann1k/online-radio/db"
+	stream_db "github.com/peter7rom-star/ims-player/db"
 )
 
 var homeDir, _ = os.UserHomeDir()
-var click, ind int
+var click, ind, s int
 var builder = gtk.NewBuilder()
 var player = NewPlayer()
 var wnd *MainWindow
-var resource_path = fmt.Sprintf("%s/%s", homeDir, ".local/share/online-radio")
-var settingsFile = fmt.Sprintf("%s/%s", resource_path, "settings.json")
+var dlg *StreamPropertiesDialog
+var resource_path = fmt.Sprintf("%s/.local/share/ims-player", homeDir)
+var settingsFile = fmt.Sprintf("%s/settings.json", resource_path)
 var db = stream_db.InitDB(fmt.Sprintf("%s/db/metadata.db", resource_path))
-var state, playlistState, playlistViewState, DefaultViewState string
+var state, playlistState, playlistViewState, DefaultViewState, query, query_2 string
 var forward = false
 var currentPlaylistItemIndex interface{}
 var selectedStreamList []stream_db.StreamItem
 var favList []stream_db.FavouriteItem
 var streamItem stream_db.StreamItem
 var favouriteItem stream_db.FavouriteItem
-var currentTitle []string
+var landList, currentTitle []string
 
 
 type MainWindow struct {
@@ -118,7 +123,7 @@ func NewMainWindow() *MainWindow {
 
 func (wnd *MainWindow) Activate(app *gtk.Application) {
 	wnd.SelectCountryBox.AppendText("All")
-	var query, query_2 string
+	wnd.SelectCountryBox.SetWrapWidth(10)
 	query = wnd.SelectCountryBox.ActiveText()
 	player.StreamList = db.LoadStationList(nil)
 	var data []stream_db.StreamItem
@@ -150,11 +155,11 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 	wnd.PlaylistView = gtk.NewListBox()
 	listView_2 := gtk.NewListBox()
 	listView_3 := gtk.NewListBox()
-	var m sync.Mutex
+	// var m sync.Mutex
 	for ind, item := range data {
 		wnd.AddItemToPlaylist(ind, item)
 	}
-	var landList = db.LoadLandList()
+	landList = db.LoadLandList()
 	model := append(landList, "favourites")
 	for _, elem := range model {
 		wnd.SelectCountryBox.AppendText(elem)
@@ -185,16 +190,16 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 			player.playing_state = player.Started
 			go func() {
 				player.Play()
-				wnd.updateMetadata()
+				// go wnd.updateMetadata()
 			}()
 		} else {
-			m.Lock()
+			// m.Lock()
 			go func() {
 				player.StopPlayback()
 				player.playing_state = player.Playing
 				player.Play()
 			}()
-			m.Unlock()
+			// m.Unlock()
 		}
 	})
 	wnd.StopButton.ConnectClicked(func() {
@@ -250,20 +255,20 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 		// }
 		wnd.ViewPort.Remove(wnd.ViewPort.Children()[0])
 		query = wnd.SelectCountryBox.ActiveText()
-		fmt.Println(favouriteItem.StreamName.IsZero())
 		state = "default"
 		selectedStreamList = []stream_db.StreamItem{}
 		selectedFavList = []stream_db.FavouriteItem{}
 		if query == "All" || len(query) == 0 {
+			wnd.PlaylistView = gtk.NewListBox()
 			if DefaultViewState == "Favourites" && count == 1 {
-				wnd.PlaylistView = gtk.NewListBox()
 				for _, item := range player.StreamList {
 					wnd.AddItemToPlaylist(nil, item)
 				}
 				listView = wnd.PlaylistView
+			} else {
+				wnd.PlaylistView = listView
+				query_2 = query
 			}
-			wnd.PlaylistView = listView
-			query_2 = query
 		} else {
 			wnd.PlaylistView = gtk.NewListBox()
 			if query == "favourites"  {
@@ -310,6 +315,14 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 			currentPlaylistItemIndex = nil
 			// state = "default"
 		}
+		count++
+		// if DefaultViewState == "Favourites" && count == 1 {
+		// 	wnd.PlaylistView = gtk.NewListBox()
+		// 	for _, item := range player.StreamList {
+		// 		wnd.AddItemToPlaylist(nil, item)
+		// 	}
+		// 	listView = wnd.PlaylistView
+		// }
 		wnd.PlaylistView.ShowAll()
 		wnd.ViewPort.Add(wnd.PlaylistView)
 	})
@@ -389,25 +402,65 @@ func NewStreamPropertiesDialog() *StreamPropertiesDialog {
 		OkButton: okButton, CancelButton: cancelButton,}
 }
 
-func (dlg *StreamPropertiesDialog) Init(item stream_db.StreamItem) {
+func (dlg *StreamPropertiesDialog) Init(index any, item stream_db.StreamItem, nameTypeOfItem string) {
+	playlistIndex := index
 	oldStreamName := item.StreamName.String
 	dlg.StreamNameBox.SetText(item.StreamName.String)
 	dlg.StreamUrlBox.SetText(item.Url.String)
-	metadata := getMetadata()
-	bitrate := metadata.BitRate[:3]
-	bitrate = fmt.Sprintf("%s %s", bitrate, "kb/s")
+	var bitrate string
+	metadata, err := getMetadata()
+	if err != nil {
+		bitrate = "undefined"
+	} else {
+		btr := metadata.BitRate
+		if len(btr) > 0 {
+			bitrate = btr[:3]
+			bitrate = fmt.Sprintf("%s %s", bitrate, "kb/s")
+		}
+	}
 	dlg.StreamBitrateBox.SetText(bitrate)
 	dlg.StreamCountryBox.SetText(item.Country.String)	
 	dlg.OkButton.ConnectReleased(func() {
 		db.Update(oldStreamName, dlg.StreamNameBox.
 			Text(), dlg.StreamUrlBox.Text())
-			dlg.Dialog.Close()
+		dlg.Dialog.Hide()
+
+		if nameTypeOfItem == "StreamItem" {
+			var data []stream_db.StreamItem
+			if slices.Contains(landList, query) {
+				data = db.LoadStationListFromCountry(query)
+			} else {
+				data = db.LoadStationList(query)
+			}
+
+			for ind, item := range data {
+				if playlistIndex != nil && ind == playlistIndex {
+					row := wnd.PlaylistView.RowAtIndex(ind)
+					wnd.PlaylistView.Remove(row)
+					newRow, _ := addRow(item)
+					wnd.PlaylistView.Insert(newRow, ind)
+				}   
+			}
+		} else {
+			var data = db.LoadFavourites()
+			for ind, item := range data {
+				if playlistIndex != nil && ind == playlistIndex {
+					convItem := item.ToStream()
+					row := wnd.PlaylistView.RowAtIndex(ind)
+					wnd.PlaylistView.Remove(row)
+					newRow, _ := addRow(convItem)
+					wnd.PlaylistView.Insert(newRow, ind)
+				}
+			}
+		}
+		wnd.PlaylistView.ShowAll()
+		wnd.ViewPort.Add(wnd.PlaylistView)
 	})
+	
 	dlg.CancelButton.ConnectReleased(func ()  {
-		dlg.Dialog.Close()
+		dlg.Dialog.Hide()
 	})
-	
-	
+	dlg.Dialog.ConnectClose(dlg.Dialog.Hide)
 }
 
 func NewSettingsDialog() *SettingsDialog {
@@ -447,7 +500,7 @@ func (dlg *SettingsDialog) Init() {
 func main() {
 	gtk.Init()
 	wnd = NewMainWindow()
-	app := gtk.NewApplication("com.github.tech7strann1k.online-radio", 0)
+	app := gtk.NewApplication("com.github.peter7rom-star.ims-player", 0)
 	app.ConnectActivate(func() { wnd.Activate(app) })
 	app.ConnectShutdown(func() {
 		if player.playing_state == player.Playing {
@@ -462,16 +515,6 @@ func main() {
 		}
 		os.Exit(code)
 	}
-}
-
-func getMetadata() ffprobe.Format {
-	var m sync.Mutex
-	ch := make(chan *ffprobe.Format)
-	m.Lock()
-	go player.GetMetadata(ch)
-	metadata := ffprobe.Format(*<-ch)
-	m.Unlock()
-	return metadata
 }
 
 var selectedFavList []stream_db.FavouriteItem
@@ -529,88 +572,127 @@ func (wnd *MainWindow) onRowClickHandler(index any, item stream_db.StreamItem, e
 		row := wnd.PlaylistView.RowAtIndex(currentPlaylistItemIndex.(int))
 		wnd.PlaylistView.SelectRow(row)	
 		wnd.PlaylistView.ShowAll()
-		wnd.ThreeButtonPressHandler()
+		wnd.ThreeButtonPressHandler(index)
 	}
 	return
 }
 
-func reverse(str string) (result string) {
-    for _, v := range str {
-        result = string(v) + result
-    }
-    return
+func getMetadata() (*ffprobe.Format, error) {
+	var metadata *ffprobe.Format
+	var err error
+	metadata_ch := make(chan *ffprobe.Format, 500)
+	error_ch := make(chan error)
+	go player.GetStreamMetadata(metadata_ch, error_ch)
+	select {
+	case metadata = <- metadata_ch:
+		return metadata, err
+	case err = <- error_ch:
+		return metadata, err
+	}
 }
 
+var stream_title, stream_tag string
+
 func (wnd *MainWindow) showMetadata(forward bool) {
-	metadata := getMetadata()
+	metadata, err := getMetadata()
 	var streamLogo = fmt.Sprintf("%s/./radio_logos/%s", resource_path, player.StreamLogo)
 	glib.IdleAdd(func(){
 		pixbuf, _ := gdkpixbuf.NewPixbufFromFileAtScale(streamLogo, 32, 32, true)
 		wnd.StreamLogoView.SetFromPixbuf(pixbuf)
 	})
 	fmt.Println(player.playing_state)
-	if metadata.Tags != nil && (player.playing_state != player.Stopped) {
-		stream_title := strings.TrimSpace(metadata.Tags.Title)
-		stream_caption := fmt.Sprintf("%s - %s", player.StreamName, stream_title)
-		fmt.Println(stream_caption)
-		num_chars := 30
-		currentTitle = append(currentTitle, stream_caption)
-		if len(currentTitle) == 2 {
-			slices.Delete(currentTitle, 1, 2)
-		}
-		if len(currentTitle) == 2 && currentTitle[1] != currentTitle[0] {
+	if player.playing_state != player.Stopped {
+		if err != nil {
+			wnd.MetadataView.SetText(player.StreamTitle)
+			ind = 0
+			forward = true
+			player.playing_state = player.Playing
 			wnd.updateMetadata()
+		} 
+		stream_tag, err = metadata.TagList.GetString("StreamTitle")
+		if stream_tag != "" || err == nil {
+			stream_tag = strings.TrimSpace(stream_tag)
+			stream_title = fmt.Sprintf("%s - %s", player.StreamTitle, stream_tag)
+		} else {
+			wnd.MetadataView.SetText(player.StreamTitle)
+			return
+		}	
+		num_chars := 30
+		currentTitle = append(currentTitle, stream_title)
+		fmt.Println("length of string stream tag is", len(stream_tag))
+		fmt.Println(stream_title)
+		if stream_tag != "" {
+			if len(currentTitle) == 2 {
+				slices.Delete(currentTitle, 1, 2)
+			}
+			if len(currentTitle) == 2 && currentTitle[1] != currentTitle[0] {
+				ind = 0
+				forward = false
+				player.playing_state = player.Playing
+			}
 		}
-		if stream_title == "" {
-			wnd.MetadataView.SetText(player.StreamName)
-		}
-		s := len(stream_caption) - num_chars
-		stream_caption = strings.ToValidUTF8(stream_caption, "")
+		stream_title = strings.ToValidUTF8(stream_title, "")
+		s := len(stream_title) - num_chars + 1
+		var text string
 		for {
 			for j := 0; j < 30; j++ {
 				time.Sleep(time.Millisecond)
 				if player.playing_state == player.Playing {
-					break
-				}
+					wnd.updateMetadata()
+				} 
 			}
+			l := ind + num_chars - 1
+			// fmt.Println(ind, s)
 			go func() {
-				if player.playing_state != player.Playing && 
-						len(stream_caption) >= ind + num_chars {
-					text := stream_caption[ind:ind+num_chars]
-					if utf8.ValidString(text) {
-						glib.IdleAdd(func() {
-							wnd.MetadataView.SetText(text)
-						})
+				if player.playing_state != player.Playing {	
+					if ind >= 0 {
+						if len(stream_title) >= l {
+							text = stream_title[ind:l]
+						}
+						// } else if ind == s - 1 {
+						// 	text = stream_title[ind:num_chars-1]
+						// }
+						if len(stream_tag) == 0 { 
+							if ind >= s && s > 0 {
+								return
+							} else {
+								text = stream_title
+							}
+						}
 					}
 				}
+				glib.IdleAdd(func() {
+					wnd.MetadataView.SetTextWithMnemonic(text)
+				})
+				fmt.Println(ind)
 			}()
 			if forward {
+				if ind >= s {
+					break
+				}
 				ind++
-				if ind == s {
-					break
-				}
 			} else {
-				ind--
-				if ind == 0 {
+				if ind <= 0 {
 					break
 				}
+				ind--
 			}
 		}
-	} else {
-		wnd.MetadataView.SetText(player.StreamName)
 	}
 }
 
 func (wnd *MainWindow) updateMetadata() {	
 	if player.playing_state == player.Playing {
 		player.playing_state = player.MetadataUpdated
-	} else {
-		time.Sleep(time.Second)
-	}
-	if forward {
-		forward = false
-	} else {
 		forward = true
+		ind = 0
+	} else {
+		if forward {
+			forward = false
+		} else {
+			forward = true
+		}
+		time.Sleep(time.Second)
 	}
 	wnd.showMetadata(forward)
 	wnd.updateMetadata()
@@ -621,18 +703,18 @@ func setPlayerMetadata(i any) {
 		if i != nil {
 			favouriteItem = i.(stream_db.FavouriteItem)
 		}
-		player.StreamName = favouriteItem.StreamName.String
+		player.StreamTitle = favouriteItem.StreamName.String
 		player.StreamLogo = favouriteItem.Logo.String
 		player.StreamUrl = favouriteItem.Url.String
-		fmt.Println("favourite item is", favouriteItem)
+		fmt.Printf("stream name is %s", player.StreamTitle)
 	} else {
 		if i != nil {
 			streamItem = i.(stream_db.StreamItem)
 		}
-		player.StreamName = streamItem.StreamName.String
+		player.StreamTitle = streamItem.StreamName.String
 		player.StreamLogo = streamItem.Logo.String
 		player.StreamUrl = streamItem.Url.String
-		fmt.Println("stream item is", streamItem)
+		fmt.Printf("stream name is %s", player.StreamTitle)
 	}
 }
 
@@ -645,7 +727,7 @@ func (wnd *MainWindow) SelectedRowHandler(i any) {
 	// }
 }
 
-func (wnd *MainWindow) ThreeButtonPressHandler() {
+func (wnd *MainWindow) ThreeButtonPressHandler(index any) {
 	var menu = gtk.NewMenu()
 	menu.Attach(wnd.PlaylistView, 0, 0, 0, 0)
 	var menuItem = gtk.NewMenuItemWithLabel("Add to favorites")
@@ -665,8 +747,11 @@ func (wnd *MainWindow) ThreeButtonPressHandler() {
 	var menuItem_2 = gtk.NewMenuItemWithLabel("Copy url")
 	menuItem_2.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
 		if len(selectedStreamList) == 1 {
-			exec.Command("echo", selectedStreamList[0].Url.String).Run()
-			exec.Command("xclip", "-i").Run()
+			fmt.Println(selectedStreamList[0].Url.String)
+			clipboard.WriteAll(selectedStreamList[0].Url.String)
+		} else if len(selectedFavList) == 1 {
+			fmt.Println(selectedFavList[0].Url.String)
+			clipboard.WriteAll(selectedFavList[0].Url.String)
 		}
 		return
 	})
@@ -680,14 +765,19 @@ func (wnd *MainWindow) ThreeButtonPressHandler() {
 	})
 	var menuItem_4 = gtk.NewMenuItemWithLabel("Properties")
 	menuItem_4.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
-		dlg := NewStreamPropertiesDialog()
+		dlg = NewStreamPropertiesDialog()
+		var item stream_db.StreamItem
+		var nameTypeOfItem string
 		if len(selectedStreamList) > 0 {
-			item := selectedStreamList[0]
-			dlg.Init(item)	
+			item = selectedStreamList[0]
+			go wnd.SelectedRowHandler(item)
+			nameTypeOfItem = reflect.TypeOf(item).Name()
 		} else if len(selectedFavList) > 0 {
-			item := selectedFavList[0].ToStream()
-			dlg.Init(item)
+			item = selectedFavList[0].ToStream()
+			go wnd.SelectedRowHandler(selectedFavList[0])
+			nameTypeOfItem = reflect.TypeOf(selectedFavList[0]).Name()
 		}
+		dlg.Init(index, item, nameTypeOfItem)
 		
 		dlg.Dialog.ShowAll()
 		return

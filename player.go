@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
+	stream_db "github.com/peter7rom-star/ims-player/db"
 	"gopkg.in/vansante/go-ffprobe.v2"
-
-	stream_db "github.com/tech7strann1k/online-radio/db"
 )
 
 var url string
 
+
 type StreamPlayer struct {
-	StreamName, StreamLogo, StreamUrl, 
+	StreamTitle, StreamLogo, StreamUrl, 
 	playing_state, record_state 			string
 	StreamList 								[]stream_db.StreamItem
 	Started, Playing, ItemChanged, 
@@ -38,14 +38,13 @@ func NewPlayer() *StreamPlayer {
 	return player
 }
 
-func (player *StreamPlayer) Play() *StreamPlayer {
-	comm := exec.Command("ffplay", "-nodisp", "-i", player.StreamUrl)
+func (player *StreamPlayer) Play() {
+	comm := exec.Command("mpg123", "-vC", player.StreamUrl)
 	err := comm.Start()
 	if err != nil {
 		fmt.Println(err)
 	}
 	player.playCommand = comm
-	return player
 }
 
 func (player *StreamPlayer) StopPlayback() error {
@@ -60,19 +59,14 @@ func (player *StreamPlayer) StopRecording() error {
 	return player.recordCommand.Wait()
 }
 
-func (player *StreamPlayer) GetMetadata(out chan <- *ffprobe.Format) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), 5 * time.Second)
-	defer cancelFn()
-	ffprobe.SetFFProbeBinPath("/usr/bin/ffprobe")
+func (player *StreamPlayer) GetStreamMetadata(metadata_ch chan *ffprobe.Format, error_ch chan error) {
+	ctx, _ := context.WithTimeout(context.Background(),  time.Second)
 	data, err := ffprobe.ProbeURL(ctx, player.StreamUrl)
 	if err != nil {
-		fmt.Println(err)
+		error_ch <- err
+		return
 	}
-	select {
-		case <-ctx.Done():
-			fmt.Println(ctx.Err())
-		case out <- data.Format:
-	}
+	metadata_ch <- data.Format
 }
 
 func (player *StreamPlayer) RecordStream()  {	

@@ -229,7 +229,7 @@ func (db *StreamDatabase) RemoveFavoriteItem(id int) {
 }
 
 func (db *StreamDatabase) GetStreamByItemName(streamName string) (StreamItem, error) {
-	row := db.QueryRow("SELECT Id, StreamName, Logo, Url FROM radiometadata WHERE StreamName = ?", streamName)
+	row := db.QueryRow("SELECT StreamName, Logo, Url FROM radiometadata WHERE StreamName = ?", streamName)
 	var item = NewStreamItem()
 	err := row.Scan(&item.StreamName, &item.Logo, &item.Url)
 	if err != nil {
