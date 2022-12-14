@@ -24,7 +24,7 @@ import (
 	"golang.org/x/exp/slices"
 	"gopkg.in/vansante/go-ffprobe.v2"
 
-	stream_db "github.com/peter7rom-star/ims-player/db"
+	stream_db "github.com/peter7rom-star/im-player/db"
 )
 
 var homeDir, _ = os.UserHomeDir()
