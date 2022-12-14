@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	stream_db "github.com/peter7rom-star/ims-player/db"
+	stream_db "github.com/peter7rom-star/im-player/db"
 	"gopkg.in/vansante/go-ffprobe.v2"
 )
 
