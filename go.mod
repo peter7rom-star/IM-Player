@@ -1,13 +1,13 @@
-module github.com/peter7rom-star/ims-player
+module github.com/peter7rom-star/im-player
 
 go 1.19
 
 require (
 	github.com/atotto/clipboard v0.1.4
-	github.com/diamondburned/gotk4/pkg v0.0.0-20221128225153-0aab6160f191
+	github.com/diamondburned/gotk4/pkg v0.0.0-20221214003552-2d57ba75df52
 	github.com/gen2brain/dlgs v0.0.0-20220603100644-40c77870fa8d
 	github.com/mattn/go-sqlite3 v1.14.16
-	golang.org/x/exp v0.0.0-20221204150635-6dcec336b2bb
+	golang.org/x/exp v0.0.0-20221212164502-fae10dda9338
 	gopkg.in/guregu/null.v3 v3.5.0
 	gopkg.in/vansante/go-ffprobe.v2 v2.1.1
 )

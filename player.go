@@ -39,11 +39,12 @@ func NewPlayer() *StreamPlayer {
 }
 
 func (player *StreamPlayer) Play() {
-	comm := exec.Command("mpg123", "-vC", player.StreamUrl)
+	comm := exec.Command("cvlc", player.StreamUrl)
 	err := comm.Start()
 	if err != nil {
 		fmt.Println(err)
 	}
+	player.playing_state = player.Started
 	player.playCommand = comm
 }
 

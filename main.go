@@ -33,9 +33,9 @@ var builder = gtk.NewBuilder()
 var player = NewPlayer()
 var wnd *MainWindow
 var dlg *StreamPropertiesDialog
-var resource_path = fmt.Sprintf("%s/.local/share/ims-player", homeDir)
+var resource_path = fmt.Sprintf("%s/.local/share/im-player", homeDir)
 var settingsFile = fmt.Sprintf("%s/settings.json", resource_path)
-var db = stream_db.InitDB(fmt.Sprintf("%s/db/metadata.db", resource_path))
+var db = stream_db.InitDB(fmt.Sprintf("%s/db/world_streams.db", resource_path))
 var state, playlistState, playlistViewState, DefaultViewState, query, query_2 string
 var forward = false
 var currentPlaylistItemIndex interface{}
@@ -123,7 +123,7 @@ func NewMainWindow() *MainWindow {
 
 func (wnd *MainWindow) Activate(app *gtk.Application) {
 	wnd.SelectCountryBox.AppendText("All")
-	wnd.SelectCountryBox.SetWrapWidth(10)
+	wnd.SelectCountryBox.SetWrapWidth(4)
 	query = wnd.SelectCountryBox.ActiveText()
 	player.StreamList = db.LoadStationList(nil)
 	var data []stream_db.StreamItem
@@ -187,10 +187,10 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 			go wnd.SelectedRowHandler(selectedFavList[0])
 		}
 		if click == 1 {
-			player.playing_state = player.Started
 			go func() {
+				player.playing_state = player.Started
 				player.Play()
-				// go wnd.updateMetadata()
+				go wnd.updateMetadata()
 			}()
 		} else {
 			// m.Lock()
@@ -261,8 +261,8 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 		if query == "All" || len(query) == 0 {
 			wnd.PlaylistView = gtk.NewListBox()
 			if DefaultViewState == "Favourites" && count == 1 {
-				for _, item := range player.StreamList {
-					wnd.AddItemToPlaylist(nil, item)
+				for ind, item := range player.StreamList {
+					wnd.AddItemToPlaylist(ind, item)
 				}
 				listView = wnd.PlaylistView
 			} else {
@@ -283,7 +283,8 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 						row := wnd.PlaylistView.RowAtIndex(ind)
 						convItem := item.ToStream()
 						row.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
-							return wnd.onRowClickHandler(ind, convItem, event)
+							wnd.onRowClickHandler(ind, convItem, event)
+							return
 						})
 					}	
 				} else {
@@ -353,7 +354,7 @@ func NewAddStreamDialog() *AddStreamDialog {
 }
 
 func (dlg *AddStreamDialog) Init() {
-	var initPath string
+	var initPath, filename string
 	dlg.AddStreamIconButton.ConnectClicked(func() {
 		file, _, err := dlgs.File("Open file", "*.png *.jpg", false)
 		if err != nil {
@@ -363,24 +364,32 @@ func (dlg *AddStreamDialog) Init() {
 		dlg.AddStreamIconBox.SetText(initPath)
 	})
 	dlg.OkButton.ConnectReleased(func() {
-		var dirs = strings.Split(initPath, "/")
-		var filename = dirs[len(dirs)-1]
-		os.Chdir(resource_path)
-		destPath := fmt.Sprintf("./%s", filename)
-		_, err := os.Stat(destPath)
-		if os.IsNotExist(err) {
-			initFile, _ := os.Open(initPath)
-			defer initFile.Close()
-			destFile, _ := os.Create(destPath)
-			defer destFile.Close()
-			io.Copy(initFile, destFile)
+		if len(initPath) > 0 {
+			var dirs = strings.Split(initPath, "/")
+			filename = dirs[len(dirs)-1]
+			fmt.Println(filename)
+			os.Chdir(resource_path)
+			destPath := fmt.Sprintf("%s/radio_logos/%s", resource_path, filename)
+			_, err := os.Stat(destPath)
+			if os.IsNotExist(err) {
+				initFile, _ := os.Open(initPath)
+				defer initFile.Close()
+				destFile, _ := os.Create(destPath)
+				defer destFile.Close()
+				io.Copy(initFile, destFile)
+			}	
 		}
 		streamName := dlg.AddStreamNameBox.Text()
 		streamUrl := dlg.AddStreamUrlBox.Text()
 		db.AddToFavourites(streamName, streamUrl, filename)
-		item, _ := db.GetFavouritesByItemName(streamName)
+		item, err := db.GetFavouritesByItemName(streamName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		index := int(item.Id.Int64)
 		convItem := item.ToStream()
-		wnd.AddItemToPlaylist(nil, convItem)
+		wnd.AddItemToPlaylist(index, convItem)
+		wnd.PlaylistView.ShowAll()
 		dlg.Dialog.Close()
 	})
 	dlg.CancelButton.ConnectReleased(func() {
@@ -551,7 +560,7 @@ func (wnd *MainWindow) AddItemToPlaylist(index any, item stream_db.StreamItem) {
 	})
 }
 
-func (wnd *MainWindow) onRowClickHandler(index any, item stream_db.StreamItem, event *gdk.EventButton) (ok bool) {
+func (wnd *MainWindow) onRowClickHandler(index any, item stream_db.StreamItem, event *gdk.EventButton) {
 	selectedStreamList = []stream_db.StreamItem{}
 	selectedFavList = []stream_db.FavouriteItem{}
 	if state == "default" {
@@ -574,7 +583,6 @@ func (wnd *MainWindow) onRowClickHandler(index any, item stream_db.StreamItem, e
 		wnd.PlaylistView.ShowAll()
 		wnd.ThreeButtonPressHandler(index)
 	}
-	return
 }
 
 func getMetadata() (*ffprobe.Format, error) {

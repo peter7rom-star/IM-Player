@@ -109,7 +109,7 @@ func (db *StreamDatabase) LoadLandList() []string {
 }
 
 func (db StreamDatabase) LoadStationListFromCountry(argv interface{}) []StreamItem {
-	var query = "SELECT StreamName, Country, Logo, Url FROM radiometadata WHERE Country = ?"
+	var query = "SELECT StreamName, Country, LogoImage, Url FROM radiometadata WHERE Country = ?"
 	rows, err := db.Query(query, argv)
 	if err != nil {
 		panic(err)
@@ -123,11 +123,11 @@ func (db StreamDatabase) LoadStationListFromCountry(argv interface{}) []StreamIt
 // }
 
 func (db *StreamDatabase) LoadStationList(argv interface{}) []StreamItem {
-	var query = "SELECT StreamName, Country, Logo, Url FROM radiometadata"
+	var query = "SELECT StreamName, Country, LogoImage, Url FROM radiometadata"
 	var streamlist = []StreamItem{}
 	if argv != nil {
-		var query = query + " WHERE StreamName MATCH  ?"
-		rows, err := db.Query(query, "" + fmt.Sprintf("%v", argv) + "")
+		var query = query + " WHERE StreamName LIKE  ?"
+		rows, err := db.Query(query, "%" + fmt.Sprintf("%v", argv) + "%")
 		if err != nil {
 			panic(err)
 		}
@@ -166,7 +166,7 @@ func (db *StreamDatabase) AddToFavourites(nameOfStream, urlOfStream, iconOfSstre
 		id++
 	}
 	
-	var query = "INSERT INTO favourites VALUES (:Id, :StreamName, :Logo, :Url)"	
+	var query = "INSERT INTO favourites VALUES (:Id, :StreamName, :LogoImage, :Url)"	
 	_, err := db.Exec(query, id, nameOfStream, iconOfSstream, urlOfStream)
 	if err != nil {
 		fmt.Println(err)
@@ -176,7 +176,7 @@ func (db *StreamDatabase) AddToFavourites(nameOfStream, urlOfStream, iconOfSstre
 }
 
 func (db *StreamDatabase) LoadFavourites() []FavouriteItem {
-	var query = "SELECT StreamName, Logo, Url FROM favourites"
+	var query = "SELECT StreamName, LogoImage, Url FROM favourites"
 	rows, err := db.Query(query)
 	if err != nil {
 		panic(err)
@@ -195,12 +195,12 @@ func (db *StreamDatabase) LoadFavourites() []FavouriteItem {
 }
 
 func (db *StreamDatabase) GetFavouritesByItemName(name string) (FavouriteItem, error) {
-	row := db.QueryRow("SELECT Id,  StreamName, Logo, Url FROM favourites WHERE StreamName = ?", name)
+	row := db.QueryRow("SELECT Id,  StreamName, LogoImage, Url FROM favourites WHERE StreamName = ?", name)
 	
 	var fv FavouriteItem
 	err := row.Scan(&fv.Id, &fv.StreamName, &fv.Logo, &fv.Url)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err != sql.ErrNoRows {
 			fv = FavouriteItem{}
 			return fv, err
 		} else {
@@ -229,7 +229,7 @@ func (db *StreamDatabase) RemoveFavoriteItem(id int) {
 }
 
 func (db *StreamDatabase) GetStreamByItemName(streamName string) (StreamItem, error) {
-	row := db.QueryRow("SELECT StreamName, Logo, Url FROM radiometadata WHERE StreamName = ?", streamName)
+	row := db.QueryRow("SELECT StreamName, LogoImage, Url FROM radiometadata WHERE StreamName = ?", streamName)
 	var item = NewStreamItem()
 	err := row.Scan(&item.StreamName, &item.Logo, &item.Url)
 	if err != nil {
