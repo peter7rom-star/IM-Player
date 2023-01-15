@@ -23,8 +23,6 @@ import (
 	"github.com/gen2brain/dlgs"
 	"golang.org/x/exp/slices"
 	"gopkg.in/vansante/go-ffprobe.v2"
-
-	stream_db "github.com/peter7rom-star/im-player/db"
 )
 
 var homeDir, _ = os.UserHomeDir()
@@ -33,16 +31,16 @@ var builder = gtk.NewBuilder()
 var player = NewPlayer()
 var wnd *MainWindow
 var dlg *StreamPropertiesDialog
-var resource_path = fmt.Sprintf("%s/.local/share/im-player", homeDir)
+var resource_path = fmt.Sprintf("%s/.local/share/IM-Player", homeDir)
 var settingsFile = fmt.Sprintf("%s/settings.json", resource_path)
-var db = stream_db.InitDB(fmt.Sprintf("%s/db/world_streams.db", resource_path))
+var db = InitDB(fmt.Sprintf("%s/db/world_streams.db", resource_path))
 var state, playlistState, playlistViewState, DefaultViewState, query, query_2 string
 var forward = false
 var currentPlaylistItemIndex interface{}
-var selectedStreamList []stream_db.StreamItem
-var favList []stream_db.FavouriteItem
-var streamItem stream_db.StreamItem
-var favouriteItem stream_db.FavouriteItem
+var selectedStreamList []StreamItem
+var favList []FavouriteItem
+var streamItem StreamItem
+var favouriteItem FavouriteItem
 var landList, currentTitle []string
 
 
@@ -65,18 +63,18 @@ type MainWindow struct {
 }
 
 type AddStreamDialog struct {
-	Dialog                                              *gtk.Dialog
-	AddStreamNameBox, AddStreamUrlBox, AddStreamIconBox *gtk.Entry
-	AddStreamIconButton, OkButton, CancelButton         *gtk.Button
+	Dialog                                              		*gtk.Dialog
+	AddStreamTitleEntry, AddStreamUrlEntry, AddStreamIconEntry 	*gtk.Entry
+	AddStreamIconButton, OkButton, CancelButton         		*gtk.Button
 }
 
 type StreamPropertiesDialog struct {
-	Dialog								*gtk.Dialog
-	StreamNameBox, 
-	StreamUrlBox						*gtk.Entry
-	StreamBitrateBox,	
-	StreamCountryBox					*gtk.Label
-	OkButton, CancelButton				*gtk.Button
+	Dialog														*gtk.Dialog
+	StreamTitleEntry, 
+	StreamUrlEntry, EditStreamIconEntry							*gtk.Entry
+	StreamBitrateLabel,	
+	StreamCountryLabel											*gtk.Label
+	EditStreamIconButton, OkButton, CancelButton				*gtk.Button
 }
 
 type SettingsDialog struct {
@@ -86,7 +84,7 @@ type SettingsDialog struct {
 }
 
 type SettingsData struct {
-	DefaultViewState				string `json: "default_view`
+	DefaultViewState				string `json:"default_view"`
 }
 
 func NewMainWindow() *MainWindow {
@@ -126,7 +124,7 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 	wnd.SelectCountryBox.SetWrapWidth(4)
 	query = wnd.SelectCountryBox.ActiveText()
 	player.StreamList = db.LoadStationList(nil)
-	var data []stream_db.StreamItem
+	var data []StreamItem
 	favList = db.LoadFavourites()
 	input, err := os.ReadFile(settingsFile)
 	var count int
@@ -256,8 +254,8 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 		wnd.ViewPort.Remove(wnd.ViewPort.Children()[0])
 		query = wnd.SelectCountryBox.ActiveText()
 		state = "default"
-		selectedStreamList = []stream_db.StreamItem{}
-		selectedFavList = []stream_db.FavouriteItem{}
+		selectedStreamList = []StreamItem{}
+		selectedFavList = []FavouriteItem{}
 		if query == "All" || len(query) == 0 {
 			wnd.PlaylistView = gtk.NewListBox()
 			if DefaultViewState == "Favourites" && count == 1 {
@@ -276,16 +274,18 @@ func (wnd *MainWindow) Activate(app *gtk.Application) {
 				favList = db.LoadFavourites()
 				if len(listView_3.Children()) > 0 {
 					wnd.PlaylistView = listView_3
-					fv, _ := db.GetFavouritesByItemName(favouriteItem.StreamName.String)
-					row := wnd.PlaylistView.RowAtIndex(int(fv.Id.Int64))
-					wnd.PlaylistView.SelectRow(row)
-					for ind, item := range favList {
-						row := wnd.PlaylistView.RowAtIndex(ind)
-						convItem := item.ToStream()
-						row.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
-							wnd.onRowClickHandler(ind, convItem, event)
-							return
-						})
+					fv, err := db.GetFavouritesByItemName(favouriteItem.StreamName.String)
+					if err == nil {
+						row := wnd.PlaylistView.RowAtIndex(int(fv.Id.Int64))
+						wnd.PlaylistView.SelectRow(row)
+						for ind, item := range favList {
+							row := wnd.PlaylistView.RowAtIndex(ind)
+							convItem := item.ToStream()
+							row.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
+								wnd.onRowClickHandler(ind, convItem, event)
+								return
+							})
+						}
 					}	
 				} else {
 					for _, item := range favList {
@@ -341,54 +341,40 @@ func NewAddStreamDialog() *AddStreamDialog {
 	builder = gtk.NewBuilderFromFile(fmt.Sprintf("%s/online_radio_app.glade", resource_path))
 	dialog := builder.GetObject("add_stream_dialog").Cast().(*gtk.Dialog)
 	dialog.SetTitle("Add Stream")
-	addStreamNameBox := builder.GetObject("add_stream_name_box").Cast().(*gtk.Entry)
-	addStreamUrlBox := builder.GetObject("add_stream_url_box").Cast().(*gtk.Entry)
-	addStreamIconBox := builder.GetObject("add_stream_icon_box").Cast().(*gtk.Entry)
+	addStreamTitleEntry := builder.GetObject("add_stream_name_box").Cast().(*gtk.Entry)
+	addStreamUrlEntry := builder.GetObject("add_stream_url_box").Cast().(*gtk.Entry)
+	addStreamIconEntry := builder.GetObject("add_stream_icon_box").Cast().(*gtk.Entry)
 	addStreamIconButton := builder.GetObject("add_stream_icon_button").Cast().(*gtk.Button)
+
 	okButton := builder.GetObject("ok_button").Cast().(*gtk.Button)
 	cancelButton := builder.GetObject("cancel_button").Cast().(*gtk.Button)
-	addStreamDialog := &AddStreamDialog{Dialog: dialog, AddStreamNameBox: addStreamNameBox, AddStreamUrlBox: addStreamUrlBox,
-		AddStreamIconBox: addStreamIconBox, AddStreamIconButton: addStreamIconButton,
-		OkButton: okButton, CancelButton: cancelButton}
+	addStreamDialog := &AddStreamDialog{Dialog: dialog, AddStreamTitleEntry: addStreamTitleEntry, AddStreamUrlEntry: addStreamUrlEntry,
+	AddStreamIconEntry: addStreamIconEntry, AddStreamIconButton: addStreamIconButton,
+	OkButton: okButton, CancelButton: cancelButton}
 	return addStreamDialog
 }
 
 func (dlg *AddStreamDialog) Init() {
-	var initPath, filename string
+	var filePath string
 	dlg.AddStreamIconButton.ConnectClicked(func() {
-		file, _, err := dlgs.File("Open file", "*.png *.jpg", false)
+		filePath, _, err := dlgs.File("Open file", "*.png *.jpg", false)
 		if err != nil {
 			fmt.Println(err)
 		}
-		initPath = file
-		dlg.AddStreamIconBox.SetText(initPath)
+		dlg.AddStreamIconEntry.SetText(filePath)
 	})
 	dlg.OkButton.ConnectReleased(func() {
-		if len(initPath) > 0 {
-			var dirs = strings.Split(initPath, "/")
-			filename = dirs[len(dirs)-1]
-			fmt.Println(filename)
-			os.Chdir(resource_path)
-			destPath := fmt.Sprintf("%s/radio_logos/%s", resource_path, filename)
-			_, err := os.Stat(destPath)
-			if os.IsNotExist(err) {
-				initFile, _ := os.Open(initPath)
-				defer initFile.Close()
-				destFile, _ := os.Create(destPath)
-				defer destFile.Close()
-				io.Copy(initFile, destFile)
-			}	
-		}
-		streamName := dlg.AddStreamNameBox.Text()
-		streamUrl := dlg.AddStreamUrlBox.Text()
+		filename := formattingStreamIconPath(filePath)
+		streamName := dlg.AddStreamTitleEntry.Text()
+		streamUrl := dlg.AddStreamUrlEntry.Text()
 		db.AddToFavourites(streamName, streamUrl, filename)
 		item, err := db.GetFavouritesByItemName(streamName)
 		if err != nil {
 			log.Fatal(err)
 		}
-		index := int(item.Id.Int64)
-		convItem := item.ToStream()
-		wnd.AddItemToPlaylist(index, convItem)
+	index := int(item.Id.Int64)
+	convItem := item.ToStream()
+	wnd.AddItemToPlaylist(index, convItem)
 		wnd.PlaylistView.ShowAll()
 		dlg.Dialog.Close()
 	})
@@ -398,25 +384,48 @@ func (dlg *AddStreamDialog) Init() {
 
 }
 
-func NewStreamPropertiesDialog() *StreamPropertiesDialog {
-	dialog := builder.GetObject("stream_properties_dialog").Cast().(*gtk.Dialog)
-	streamNameBox := builder.GetObject("stream_name_box").Cast().(*gtk.Entry)
-	streamUrlBox := builder.GetObject("stream_url_box").Cast().(*gtk.Entry)
-	streamBitrateBox := builder.GetObject("stream_bitrate_box").Cast().(*gtk.Label)
-	streamCountryBox := builder.GetObject("stream_country_box").Cast().(*gtk.Label)
-	okButton := builder.GetObject("ok").Cast().(*gtk.Button)
-	cancelButton := builder.GetObject("cancel").Cast().(*gtk.Button)
-	return &StreamPropertiesDialog{Dialog: dialog, StreamNameBox: streamNameBox, 
-		StreamUrlBox: streamUrlBox, StreamBitrateBox: streamBitrateBox, StreamCountryBox: streamCountryBox, 
-		OkButton: okButton, CancelButton: cancelButton,}
+func formattingStreamIconPath(filePath string) string {
+	var filename string
+	if len(filePath) > 0 {
+		var dirs = strings.Split(filePath, "/")
+		filename = dirs[len(dirs)-1]
+		fmt.Println(filename)
+		os.Chdir(resource_path)
+		destPath := fmt.Sprintf("%s/radio_logos/%s", resource_path, filename)
+		_, err := os.Stat(destPath)
+		if os.IsNotExist(err) {
+			initFile, _ := os.Open(filePath)
+			defer initFile.Close()
+			destFile, _ := os.Create(destPath)
+			defer destFile.Close()
+			io.Copy(initFile, destFile)
+		}	
+	}
+	return filename
 }
 
-func (dlg *StreamPropertiesDialog) Init(index any, item stream_db.StreamItem, nameTypeOfItem string) {
+func NewStreamPropertiesDialog() *StreamPropertiesDialog {
+	dialog := builder.GetObject("stream_properties_dialog").Cast().(*gtk.Dialog)
+	StreamTitleEntry := builder.GetObject("stream_name_box").Cast().(*gtk.Entry)
+	StreamUrlEntry := builder.GetObject("stream_url_box").Cast().(*gtk.Entry)
+	StreamBitrateLabel := builder.GetObject("stream_bitrate_box").Cast().(*gtk.Label)
+	StreamCountryLabel := builder.GetObject("stream_country_box").Cast().(*gtk.Label)
+	editStreamIconButton := builder.GetObject("edit_stream_icon_button").Cast().(*gtk.Button)
+	editStreamIconEntry := builder.GetObject("edit_stream_icon_entry").Cast().(*gtk.Entry)
+	okButton := builder.GetObject("ok").Cast().(*gtk.Button)
+	cancelButton := builder.GetObject("cancel").Cast().(*gtk.Button)
+	return &StreamPropertiesDialog{Dialog: dialog, StreamTitleEntry: StreamTitleEntry, StreamUrlEntry: StreamUrlEntry, 
+		StreamBitrateLabel: StreamBitrateLabel, StreamCountryLabel: StreamCountryLabel, EditStreamIconButton: editStreamIconButton, 
+		EditStreamIconEntry: editStreamIconEntry, OkButton: okButton, CancelButton: cancelButton,}
+}
+
+func (dlg *StreamPropertiesDialog) Init(index any, item StreamItem, nameTypeOfItem string) {
 	playlistIndex := index
 	oldStreamName := item.StreamName.String
-	dlg.StreamNameBox.SetText(item.StreamName.String)
-	dlg.StreamUrlBox.SetText(item.Url.String)
-	var bitrate string
+	dlg.StreamTitleEntry.SetText(oldStreamName)
+	dlg.StreamUrlEntry.SetText(item.Url.String)
+	var bitrate, filePath, filename string
+	filename = item.Logo.String
 	metadata, err := getMetadata()
 	if err != nil {
 		bitrate = "undefined"
@@ -427,15 +436,21 @@ func (dlg *StreamPropertiesDialog) Init(index any, item stream_db.StreamItem, na
 			bitrate = fmt.Sprintf("%s %s", bitrate, "kb/s")
 		}
 	}
-	dlg.StreamBitrateBox.SetText(bitrate)
-	dlg.StreamCountryBox.SetText(item.Country.String)	
+	dlg.StreamBitrateLabel.SetText(bitrate)
+	dlg.StreamCountryLabel.SetText(item.Country.String)
+	dlg.EditStreamIconButton.ConnectClicked(func ()  {
+		filePath, _, err = dlgs.File("Open file", "*.png *.jpg", false)
+		if err != nil {
+			fmt.Println(err)
+		}
+		dlg.EditStreamIconEntry.SetText(filePath)
+	})	
 	dlg.OkButton.ConnectReleased(func() {
-		db.Update(oldStreamName, dlg.StreamNameBox.
-			Text(), dlg.StreamUrlBox.Text())
-		dlg.Dialog.Hide()
-
+		filename = formattingStreamIconPath(filePath)
+		db.Update(oldStreamName, dlg.StreamTitleEntry.Text(),
+			dlg.StreamUrlEntry.Text(), filename)
 		if nameTypeOfItem == "StreamItem" {
-			var data []stream_db.StreamItem
+			var data []StreamItem
 			if slices.Contains(landList, query) {
 				data = db.LoadStationListFromCountry(query)
 			} else {
@@ -447,6 +462,7 @@ func (dlg *StreamPropertiesDialog) Init(index any, item stream_db.StreamItem, na
 					row := wnd.PlaylistView.RowAtIndex(ind)
 					wnd.PlaylistView.Remove(row)
 					newRow, _ := addRow(item)
+					newRow.ShowAll()
 					wnd.PlaylistView.Insert(newRow, ind)
 				}   
 			}
@@ -458,12 +474,13 @@ func (dlg *StreamPropertiesDialog) Init(index any, item stream_db.StreamItem, na
 					row := wnd.PlaylistView.RowAtIndex(ind)
 					wnd.PlaylistView.Remove(row)
 					newRow, _ := addRow(convItem)
+					newRow.ShowAll()
 					wnd.PlaylistView.Insert(newRow, ind)
 				}
 			}
 		}
+		dlg.Dialog.Hide()
 		wnd.PlaylistView.ShowAll()
-		wnd.ViewPort.Add(wnd.PlaylistView)
 	})
 	
 	dlg.CancelButton.ConnectReleased(func ()  {
@@ -526,9 +543,9 @@ func main() {
 	}
 }
 
-var selectedFavList []stream_db.FavouriteItem
+var selectedFavList []FavouriteItem
 
-func addRow(item stream_db.StreamItem) (*gtk.ListBoxRow, stream_db.StreamItem) {
+func addRow(item StreamItem) (*gtk.ListBoxRow, StreamItem) {
 	hbox := gtk.NewBox(gtk.OrientationHorizontal, 7)
 	eventBox := gtk.NewEventBox()
 	var streamLogo = fmt.Sprintf("%s/./radio_logos/%s", resource_path, item.Logo.String)
@@ -551,7 +568,7 @@ func addRow(item stream_db.StreamItem) (*gtk.ListBoxRow, stream_db.StreamItem) {
 	return row, item
 }
 
-func (wnd *MainWindow) AddItemToPlaylist(index any, item stream_db.StreamItem) {
+func (wnd *MainWindow) AddItemToPlaylist(index any, item StreamItem) {
 	row, item := addRow(item)
 	wnd.PlaylistView.Add(row)
 	row.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
@@ -560,9 +577,9 @@ func (wnd *MainWindow) AddItemToPlaylist(index any, item stream_db.StreamItem) {
 	})
 }
 
-func (wnd *MainWindow) onRowClickHandler(index any, item stream_db.StreamItem, event *gdk.EventButton) {
-	selectedStreamList = []stream_db.StreamItem{}
-	selectedFavList = []stream_db.FavouriteItem{}
+func (wnd *MainWindow) onRowClickHandler(index any, item StreamItem, event *gdk.EventButton) {
+	selectedStreamList = []StreamItem{}
+	selectedFavList = []FavouriteItem{}
 	if state == "default" {
 		stream, _ := db.GetStreamByItemName(item.StreamName.String)
 		selectedStreamList = append(selectedStreamList, stream)
@@ -709,7 +726,7 @@ func (wnd *MainWindow) updateMetadata() {
 func setPlayerMetadata(i any) {
 	if state == "favourites_selected"  {
 		if i != nil {
-			favouriteItem = i.(stream_db.FavouriteItem)
+			favouriteItem = i.(FavouriteItem)
 		}
 		player.StreamTitle = favouriteItem.StreamName.String
 		player.StreamLogo = favouriteItem.Logo.String
@@ -717,7 +734,7 @@ func setPlayerMetadata(i any) {
 		fmt.Printf("stream name is %s", player.StreamTitle)
 	} else {
 		if i != nil {
-			streamItem = i.(stream_db.StreamItem)
+			streamItem = i.(StreamItem)
 		}
 		player.StreamTitle = streamItem.StreamName.String
 		player.StreamLogo = streamItem.Logo.String
@@ -742,7 +759,7 @@ func (wnd *MainWindow) ThreeButtonPressHandler(index any) {
 	menuItem.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
 		if state == "default" {
 			for _, stream := range selectedStreamList {
-				item := stream_db.FavouriteItem{StreamName: stream.StreamName, 
+				item := FavouriteItem{StreamName: stream.StreamName, 
 					Logo: stream.Logo, Url: stream.Url}
 				if !slices.Contains(favList, item) {
 					db.AddToFavourites(stream.StreamName.String,
@@ -772,9 +789,9 @@ func (wnd *MainWindow) ThreeButtonPressHandler(index any) {
 		return
 	})
 	var menuItem_4 = gtk.NewMenuItemWithLabel("Properties")
-	menuItem_4.ConnectButtonPressEvent(func(event *gdk.EventButton) (ok bool) {
+	menuItem_4.ConnectButtonReleaseEvent(func(event *gdk.EventButton) (ok bool) {
 		dlg = NewStreamPropertiesDialog()
-		var item stream_db.StreamItem
+		var item StreamItem
 		var nameTypeOfItem string
 		if len(selectedStreamList) > 0 {
 			item = selectedStreamList[0]

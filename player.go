@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	stream_db "github.com/peter7rom-star/im-player/db"
 	"gopkg.in/vansante/go-ffprobe.v2"
 )
 
@@ -21,7 +19,7 @@ var url string
 type StreamPlayer struct {
 	StreamTitle, StreamLogo, StreamUrl, 
 	playing_state, record_state 			string
-	StreamList 								[]stream_db.StreamItem
+	StreamList 								[]StreamItem
 	Started, Playing, ItemChanged, 
 	MetadataUpdated, 
 	StopUpdatingMetadata,  Stopped 			string
@@ -39,7 +37,7 @@ func NewPlayer() *StreamPlayer {
 }
 
 func (player *StreamPlayer) Play() {
-	comm := exec.Command("cvlc", player.StreamUrl)
+	comm := exec.Command("ffplay", player.StreamUrl)
 	err := comm.Start()
 	if err != nil {
 		fmt.Println(err)
